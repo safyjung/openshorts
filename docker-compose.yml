@@ -5,9 +5,11 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - .:/app
+      - .:/app:Z
       - /app/__pycache__
-      - ./output:/app/output
+      - openshorts_uploads:/app/uploads
+      - openshorts_output:/app/output
+      - openshorts_cache:/app/.cache
     restart: unless-stopped
 
   frontend:
@@ -18,7 +20,7 @@ services:
     ports:
       - "5175:5173"
     volumes:
-      - ./dashboard:/app
+      - ./dashboard:/app:Z
       - /app/node_modules
     restart: unless-stopped
     depends_on:
@@ -32,7 +34,7 @@ services:
     ports:
       - "3100:3100"
     volumes:
-      - ./output:/output
+      - openshorts_output:/output
     environment:
       - REMOTION_BUNDLE_PATH=/app/remotion
       - OUTPUT_DIR=/output
@@ -40,3 +42,8 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
+
+volumes:
+  openshorts_uploads:
+  openshorts_output:
+  openshorts_cache:

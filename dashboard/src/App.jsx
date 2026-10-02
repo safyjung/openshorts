@@ -323,6 +323,10 @@ function App() {
     try { return localStorage.getItem('os_social_nudge_dismissed') === '1'; } catch (_) { return false; }
   });
   const [showKeyModal, setShowKeyModal] = useState(false);
+  const [showLocalSave, setShowLocalSave] = useState(!billingEnabled);
+  useEffect(() => {
+    setShowLocalSave(!billingEnabled);
+  }, [billingEnabled]);
   const [jobId, setJobId] = useState(null);
   const [status, setStatus] = useState('idle'); // idle, processing, complete, error
   const [results, setResults] = useState(null);
@@ -640,6 +644,30 @@ function App() {
     }
   };
 
+  const handleSaveLocal = async () => {
+    if (!jobId) return;
+    try {
+      const res = await apiFetch(`/api/jobs/${jobId}/download-all`);
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `openshorts_clips_${(jobId || '').slice(0, 8)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      // Show success message or auto-close after a delay
+      setTimeout(() => {
+        setShowLocalSave(false);
+      }, 1500);
+    } catch (e) {
+      alert(`Local save failed: ${e.message}`);
+      setShowLocalSave(true); // Retry
+    }
+  };
+
   // Session Recovery: Restore on mount
   useEffect(() => {
     try {
@@ -851,7 +879,7 @@ function App() {
   // A self-hosted server running the moment picker on a local LLM
   // (LLM_BASE_URL) does not need a Gemini key for the core pipeline.
   const geminiOk = !!apiKey || !!localLlm;
-  const keysMissing = !billingEnabled && (!geminiOk || !uploadPostKey);
+  const keysMissing = !billingEnabled && (!geminiOk || (!showLocalSave && !uploadPostKey));
   const needsPlan = billingEnabled && !isManaged;   // hosted, signed-out or no active plan/trial
 
   // Fresh sign-up: Clip Generator tutorial (AuthContext set os_show_clip_tutorial
@@ -1000,7 +1028,7 @@ function App() {
     }
   };
 
-  const handleProcess = async (data, forceLowQuality = false) => {
+  const handleProcess = async (data, forceLowQuality = false, saveLocally = false) => {
     // Hosted: must be signed in AND on an active plan/trial. Self-host: BYOK keys.
     if (billingEnabled) {
       // The billing gate below is unchanged: signed in, then entitled, then the
@@ -1010,7 +1038,7 @@ function App() {
       // fall through the same gates.
       if (!isSignedIn) { stashPendingJob(data); setShowLogin(true); return; }
       if (!isManaged) { window.location.hash = '#/pricing'; return; }
-    } else if (keysMissing) {
+    } else if (keysMissing && !saveLocally) {
       setShowKeyModal(true);
       return;
     }
@@ -1035,21 +1063,13 @@ function App() {
       // BYOK sends the Gemini header; managed users rely on the bearer token
       // that apiFetch attaches automatically.
       const headers = apiKey ? { 'X-Gemini-Key': apiKey } : {};
-
-      // Advanced generation controls: only sent when the user set them, so the
-      // default request stays byte-identical to the pre-feature one.
       const advanced = {
         target_clips: data.targetClips || null,
         clip_min_seconds: data.clipMinSeconds || null,
         clip_max_seconds: data.clipMaxSeconds || null,
-        // Sent explicitly both ways: absent means off for raw API callers,
-        // but the dashboard always states the user's choice.
         auto_hook: data.autoHook ? '1' : '0',
         auto_hook_style: data.autoHook ? (data.autoHookStyle || 'pill') : null,
-        // 'auto' is the server default, so only a deliberate choice travels.
         layouts: data.layout && data.layout !== 'auto' ? data.layout : null,
-        // Set when the user took the quota wall's "clip the first N minutes"
-        // offer: the server reserves N minutes and cuts the source to them.
         max_minutes: data.maxMinutes || null,
       };
 
@@ -1060,6 +1080,7 @@ function App() {
           acknowledged: !!data.acknowledged,
           output_format: data.outputFormat || 'auto',
           force_low_quality: forceLowQuality,
+          save_locally: saveLocally,
           ...Object.fromEntries(Object.entries(advanced).filter(([, v]) => v != null)),
         });
       } else if (data.type === 'thumbnail_session') {
@@ -1070,6 +1091,7 @@ function App() {
           thumbnail_session_id: data.payload,
           acknowledged: !!data.acknowledged,
           output_format: data.outputFormat || 'auto',
+          save_locally: saveLocally,
           ...Object.fromEntries(Object.entries(advanced).filter(([, v]) => v != null)),
         });
       } else {
@@ -1077,6 +1099,7 @@ function App() {
         formData.append('file', data.payload);
         formData.append('acknowledged', data.acknowledged ? 'true' : 'false');
         formData.append('output_format', data.outputFormat || 'auto');
+        formData.append('save_locally', saveLocally ? 'true' : 'false');
         for (const [k, v] of Object.entries(advanced)) {
           if (v != null) formData.append(k, v);
         }
@@ -1110,6 +1133,10 @@ function App() {
       }
       // Minutes are reserved at job start, not at complete.
       refreshMe();
+      // Handle local save mode response from backend
+      if (resData.save_locally) {
+        setShowLocalSave(true);
+      }
 
     } catch (e) {
       if (e instanceof QuotaError) {
@@ -2152,6 +2179,15 @@ function App() {
                           ? <><Loader2 size={14} className="animate-spin" />zipping…</>
                           : <><Download size={14} />download all</>}
                       </button>
+                      {showLocalSave && (
+                        <button
+                          onClick={handleSaveLocal}
+                          className="btn-primary px-4 py-2 text-xs"
+                          title="Save clips locally"
+                        >
+                          <Download size={14} /> save locally
+                        </button>
+                      )}
                       {results.clips.length > 1 && (
                         <button
                           onClick={() => setShowScheduleWeek(true)}

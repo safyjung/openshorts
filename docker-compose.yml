@@ -10,6 +10,10 @@ services:
       - openshorts_uploads:/app/uploads
       - openshorts_output:/app/output
       - openshorts_cache:/app/.cache
+    environment:
+      - MPLCONFIGDIR=/tmp/matplotlib
+      - YOLO_MODEL_PATH=/tmp/yolov8n.pt
+      - HOOK_TEMP_DIR=/tmp
     restart: unless-stopped
 
   frontend:

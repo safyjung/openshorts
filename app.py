@@ -2933,6 +2933,7 @@ async def process_endpoint(
     captions: Optional[str] = Form(None),
     upload_id: Optional[str] = Form(None),
     max_minutes: Optional[str] = Form(None),
+    save_locally: Optional[str] = Form(None),
 ):
     api_key = await resolve_gemini(request)
     if not api_key and not (llm_backend.active() and not BILLING_ENABLED):
@@ -2968,6 +2969,7 @@ async def process_endpoint(
         captions = body.get("captions")
         upload_id = body.get("upload_id")
         max_minutes = body.get("max_minutes")
+        save_locally = body.get("save_locally")
 
     # Normalize output format (auto = keep pipeline default).
     if output_format not in ("vertical", "horizontal", "square"):
@@ -3060,6 +3062,8 @@ async def process_endpoint(
     # still dies before it renders anything -- the server starts and every job
     # fails instead. setdefault, so an explicit PYTHONIOENCODING still wins.
     env.setdefault("PYTHONIOENCODING", "utf-8")
+    if save_locally:
+        env["SAVE_LOCAL"] = "1"
 
     # Optional layouts are per job. The renderer reads these at import time in
     # the subprocess, so they must be set before Popen — same path WATERMARK
@@ -3285,8 +3289,11 @@ async def process_endpoint(
 
     _enqueue_job(job_id, priority)
 
-    return {"job_id": job_id, "status": "queued", "partial": partial,
-            "first_video": bool(getattr(request.state, "first_video", False))}
+    response = {"job_id": job_id, "status": "queued", "partial": partial,
+                "first_video": bool(getattr(request.state, "first_video", False))}
+    if save_locally:
+        response["save_locally"] = True
+    return response
 
 def _job_view_from_disk(job_id):
     """What the disk says about a job this instance does not hold in memory.
